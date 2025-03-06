@@ -20,7 +20,7 @@ pip install git+https://github.com/liuyanyi/turbomind_vllm_plugin.git
 
 Since this package is a general plugin for vLLM, it will be loaded automatically when you run the vLLM OpenAI Server or `LLM` class.
 
-But their's a small problem on vLLM cli args to use this plugin out of the box. I'm making a simple pr.
+But their's a small problem on vLLM cli args to use this plugin out of the box. I'm making a simple pr https://github.com/vllm-project/vllm/pull/14328 .
 
 # Performance Test
 
