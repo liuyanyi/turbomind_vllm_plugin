@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# See https://setuptools.pypa.io/en/latest/userguide/quickstart.html for more project configuration options.
+name = "turbomind_vllm_plugin"
+readme = "README.md"
+version = "0.1.0"
+classifiers = [
+    "Intended Audience :: Science/Research",
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+authors = [{ name = "neu", email = "neu@example.com" }]
+requires-python = ">=3.10"
+dependencies = [
+    "turbomind"
+]
+
+[project.entry-points.'vllm.general_plugins']
+turbomind_quant = 'turbomind_vllm_plugin:register'
+
+[tool.setuptools.packages.find]
+exclude = [
+    "*.tests",
+    "*.tests.*",
+    "tests.*",
+    "tests",
+    "docs*",
+    "scripts*",
+    ".vscode*",
+    "dev_scripts*",
+]
+
+[tool.setuptools]
+include-package-data = true
