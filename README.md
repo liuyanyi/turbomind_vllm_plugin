@@ -5,10 +5,9 @@ TurboMind is a high performance inference engine from InternLM Team, which is al
 TurboMind has the ability to serve AWQ model on Volta GPUs (V100), which is the main reason I built this plugin. It also shows great performance on throughput.
 
 
-::: warning
-
-I'm not familiar with kernel development, most of the code here is migrated from the [Pr of SGLang](https://github.com/sgl-project/sglang/pull/2900) to vLLM, and it works fine on my device.
-However, I haven't tested the accuracy on the model, please use it with caution.
+> [!WARNING]  
+> I'm not familiar with kernel development, most of the code here is migrated from the [Pr of SGLang](https://github.com/sgl-project/sglang/pull/2900) to vLLM, and it works fine on my device.
+> However, I haven't tested the accuracy on the model, please use it with caution.
 
 
 # Installation
