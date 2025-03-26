@@ -12,53 +12,178 @@ TurboMind has the ability to serve AWQ model on Volta GPUs (V100), which is the 
 
 # Installation
 
+First, clone this repository:
+
 ```bash
-pip install git+https://github.com/liuyanyi/turbomind_vllm_plugin.git
+git clone https://github.com/liuyanyi/turbomind_vllm_plugin.git
 ```
+
+remember to update the submodule:
+
+```bash
+git submodule update --init --recursive
+```
+
+## Step 1: Install TurboMind
+
+### Choice 1: Install TurboMind from source
+
+```bash
+# bash setup_turbomind.sh <NUM_PROCESS> <NUM_THREADS>
+bash setup_turbomind.sh 8 12
+```
+
+This will build and install the turbomind under `third_party/turbomind`.
+
+### Choice 2: Install pre-built TurboMind
+
+You can download the pre-built TurboMind package from the releases section of the repository. I built that on cuda 12 and python 3.10. Install the TurboMind package:
+
+```bash
+pip install turbomind-0.1.0-cp310-cp310-linux_x86_64.whl
+```
+
+### Choice 3: [NOT RECOMMENDED] Install TurboMind from pip
+
+```bash
+pip install turbomind
+```
+
+> [!WARNING]  
+> Until now (20250326), turbomind on pypi is an old version, which lead to a higer memory usage (See https://github.com/InternLM/turbomind/issues/14), this version is runable but not recommended.
+
+
+## Step 2: Install the Plugin
+
+```bash
+pip install .
+```
+
+the `turbomind_vllm_plugin` will be installed.
+
 
 # Usage
 
 Since this package is a general plugin for vLLM, it will be loaded automatically when you run the vLLM OpenAI Server or `LLM` class.
 
-But their's a small problem on vLLM cli args to use this plugin out of the box. I'm making a simple pr https://github.com/vllm-project/vllm/pull/14328 .
+You can use vLLM>0.8.0 with this plugin, for example:
+
+```bash
+vllm serve <MODEL_TAG> -q awq_turbomind --enforce-eager
+```
+
+Since vLLM v1 engine is default to use, but this plugin is currently not compatible with torch.compile.
+If you face the error like this or any error related to torch dynamo and torch.compile, 
+You can use `--enforce-eager` in v1 engine to avoid this, or use v0 by set env `VLLM_USE_V1=0 `
+
+```
+[core.py:340]     raise Unsupported(msg, case_name=case_name)
+[core.py:340] torch._dynamo.exc.Unsupported: call_method UserDefinedObjectVariable
+```
 
 # Performance Test
 
 This is not a formal test, just a simple comparison between TurboMind and other kernel.
 
 
-benchmark command:
+## Throughput Test on single A100
+
+vLLM version: 0.8.2
+
+commands:
 ```bash
-python3 benchmarks/benchmark_throughput.py --backend=vllm --model /large-storage/model/Qwen2.5/qwen/qwq-32b-awq/ -q {} --input-len 1024 --output-len 128 --num-prompts=250
+python3 benchmarks/benchmark_throughput.py --backend=vllm --model /large-storage/model/Qwen2.5/qwen/qwq-32b-awq/ -q awq_turbomind --input-len 1024 --output-len 128 --num-prompts=1000 --enforce-eager --max-model-len 32768
+python3 benchmarks/benchmark_throughput.py --backend=vllm --model /large-storage/model/Qwen2.5/qwen/qwq-32b-awq/ -q awq --input-len 1024 --output-len 128 --num-prompts=1000  --max-model-len 32768
+python3 benchmarks/benchmark_throughput.py --backend=vllm --model /large-storage/model/Qwen2.5/qwen/qwq-32b-awq/ -q awq_marlin --input-len 1024 --output-len 128 --num-prompts=1000  --max-model-len 32768
 ```
-The only difference is -q flag
-
-A100 TP1 Test
-
-| -q            | Device   | TP  | Throughput | Total Tokens/s | Output Tokens/s |
-| ------------- | -------- | --- | ---------- | -------------- | --------------- |
-| awq           | A100 80G | 1   | 1.77       | 2042.61        | 226.96          |
-| awq_marlin    | A100 80G | 1   | 2.00       | 2298.71        | 255.41          |
-| awq_turbomind | A100 80G | 1   | 2.48       | 2852.13        | 316.90          |
-
-A100 TP2 Test
-
-AWQ Throughput: 1.96 requests/s, 2263.15 total tokens/s, 251.46 output tokens/s
-awq_marlin Throughput: 2.06 requests/s, 2377.60 total tokens/s, 264.18 output tokens/s
-Throughput: 2.31 requests/s, 2662.31 total tokens/s, 295.81 output tokens/s
-
-| -q            | Device   | TP  | Throughput | Total Tokens/s | Output Tokens/s |
-| ------------- | -------- | --- | ---------- | -------------- | --------------- |
-| awq           | A100 80G | 2   | 1.96       | 2263.15        | 251.46          |
-| awq_marlin    | A100 80G | 2   | 2.06       | 2377.60        | 264.18          |
-| awq_turbomind | A100 80G | 2   | 2.31       | 2662.31        | 295.81          |
-
-Note: I'm using A100 PCIe 80G, the throughput is limited. It's also weird for tp2 slower than tp1 when using turbomind.
-
-V100 TP2 Test
 
 TODO
 
+## Serving Benchmark
+
+Model: QwQ-32B-AWQ
+vLLM version: 0.8.2
+
+```
+AWQ
+============ Serving Benchmark Result ============
+Successful requests:                     1000      
+Benchmark duration (s):                  633.82    
+Total input tokens:                      1024000   
+Total generated tokens:                  125336    
+Request throughput (req/s):              1.58      
+Output token throughput (tok/s):         197.75    
+Total Token throughput (tok/s):          1813.36   
+---------------Time to First Token----------------
+Mean TTFT (ms):                          294287.98 
+Median TTFT (ms):                        287592.85 
+P99 TTFT (ms):                           592100.04 
+-----Time per Output Token (excl. 1st token)------
+Mean TPOT (ms):                          743.77    
+Median TPOT (ms):                        789.47    
+P99 TPOT (ms):                           832.61    
+---------------Inter-token Latency----------------
+Mean ITL (ms):                           744.99    
+Median ITL (ms):                         950.71    
+P99 ITL (ms):                            979.63    
+==================================================
+```
+
+```
+AWQ_MARLIN
+============ Serving Benchmark Result ============
+Successful requests:                     1000      
+Benchmark duration (s):                  583.36    
+Total input tokens:                      1024000   
+Total generated tokens:                  125336    
+Request throughput (req/s):              1.71      
+Output token throughput (tok/s):         214.85    
+Total Token throughput (tok/s):          1970.19   
+---------------Time to First Token----------------
+Mean TTFT (ms):                          281009.08 
+Median TTFT (ms):                        282297.23 
+P99 TTFT (ms):                           564498.71 
+-----Time per Output Token (excl. 1st token)------
+Mean TPOT (ms):                          686.12    
+Median TPOT (ms):                        742.45    
+P99 TPOT (ms):                           780.88    
+---------------Inter-token Latency----------------
+Mean ITL (ms):                           686.61    
+Median ITL (ms):                         957.65    
+P99 ITL (ms):                            983.14    
+==================================================
+```
+
+
+```
+AWQ TurboMind
+============ Serving Benchmark Result ============
+Successful requests:                     1000      
+Benchmark duration (s):                  478.11    
+Total input tokens:                      1024000   
+Total generated tokens:                  125336    
+Request throughput (req/s):              2.09      
+Output token throughput (tok/s):         262.15    
+Total Token throughput (tok/s):          2403.93   
+---------------Time to First Token----------------
+Mean TTFT (ms):                          229132.11 
+Median TTFT (ms):                        230232.41 
+P99 TTFT (ms):                           464637.11 
+-----Time per Output Token (excl. 1st token)------
+Mean TPOT (ms):                          540.20    
+Median TPOT (ms):                        578.18    
+P99 TPOT (ms):                           608.63    
+---------------Inter-token Latency----------------
+Mean ITL (ms):                           541.79    
+Median ITL (ms):                         767.52    
+P99 ITL (ms):                            797.92    
+==================================================
+```
+
+# TODO
+
+- [ ] Fix torch compile
+- [ ] Update performance benchmarks
 
 # Reference
 

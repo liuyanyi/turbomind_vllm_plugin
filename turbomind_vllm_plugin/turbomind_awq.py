@@ -23,6 +23,8 @@ from vllm.model_executor.parameter import (
     PackedvLLMParameter,
 )
 from vllm.platforms import current_platform
+from vllm.utils import current_stream
+from vllm import __version_tuple__ as vllm_version
 
 try:
     import _turbomind_ext
@@ -35,6 +37,23 @@ except Exception as e:
 
 logger = logging.getLogger(__name__)
 
+if vllm_version < (0, 8, 0):
+    # 如果小于 0.8.0 , 需要警告可能需要对 cli args 进行patch
+    msg = (
+        "If you are using OpenAI Server, please make sure you have patched "
+        "the CLI args to accept the new quantization method. Please refer to "
+        "the documentation for more details."
+    )
+    logger.warning(msg)
+else:
+    # 如果大于等于 0.8.0 , 需要对 V1 引擎进行提示
+    msg = (
+        "Since V1 engine is default in vLLM, but turbomind is not "
+        "torch.compile compatible, please use V0 engine or set "
+        "--enforce-eager to True."
+    )
+    logger.warning(msg)
+
 
 def is_layer_skipped_awq(prefix: str, modules_to_not_convert: list[str]):
     return any(module_name in prefix for module_name in modules_to_not_convert)
@@ -43,8 +62,7 @@ def is_layer_skipped_awq(prefix: str, modules_to_not_convert: list[str]):
 def verify_turbomind_supported(quant_bit: int, group_size: int) -> bool:
     if quant_bit not in [4]:
         raise NotImplementedError(
-            f"[Tubomind] Only 4-bit is supported for now, "
-            f"but got {quant_bit} bit"
+            f"[Tubomind] Only 4-bit is supported for now, " f"but got {quant_bit} bit"
         )
     if group_size != 128:
         raise NotImplementedError(
@@ -118,9 +136,7 @@ class AWQTurbomindConfig(QuantizationConfig):
         weight_bits = cls.get_from_keys(config, ["bits"])
         group_size = cls.get_from_keys(config, ["group_size"])
         zero_point = cls.get_from_keys(config, ["zero_point"])
-        lm_head_quantized = cls.get_from_keys_or(
-            config, ["lm_head"], default=False
-        )
+        lm_head_quantized = cls.get_from_keys_or(config, ["lm_head"], default=False)
         modules_to_not_convert = cls.get_from_keys_or(
             config, ["modules_to_not_convert"], None
         )
@@ -133,13 +149,9 @@ class AWQTurbomindConfig(QuantizationConfig):
         )
 
     @classmethod
-    def override_quantization_method(
-        cls, hf_quant_cfg, user_quant
-    ) -> Optional[str]:
+    def override_quantization_method(cls, hf_quant_cfg, user_quant) -> Optional[str]:
         can_convert = cls.is_awq_turbomind_compatible(hf_quant_cfg)
-        is_valid_user_quant = (
-            user_quant is None or user_quant == "awq_turbomind"
-        )
+        is_valid_user_quant = user_quant is None or user_quant == "awq_turbomind"
 
         if can_convert and is_valid_user_quant:
             msg = (
@@ -176,9 +188,7 @@ class AWQTurbomindConfig(QuantizationConfig):
         if num_bits is None or group_size is None or zero_point is None:
             return False
 
-        return verify_turbomind_supported(
-            quant_bit=num_bits, group_size=group_size
-        )
+        return verify_turbomind_supported(quant_bit=num_bits, group_size=group_size)
 
     def get_quant_method(
         self, layer: torch.nn.Module, prefix: str
@@ -305,23 +315,31 @@ class AWQTurbomindLinearMethod(LinearMethodBase):
         layer.scales = Parameter(scales_turbomind, requires_grad=False)
         layer.qzeros = Parameter(qzeros_turbomind, requires_grad=False)
 
+        self.output_size_per_partition = layer.output_size_per_partition
+
+    # @torch.compiler.disable(recursive=True)
+    def linear_forward(self, x):
+        x = x.view(-1, x.shape[-1])
+        out = torch.empty(
+            (x.shape[0], self.output_size_per_partition),
+            dtype=torch.float16,
+            device=x.device,
+        )
+        stream = current_stream()
+        self.linear.forward(x, out, stream.cuda_stream)
+        out = torch.from_dlpack(out)
+        return out
+
+    # @torch.compiler.disable(recursive=True)
     def apply(
         self,
         layer: torch.nn.Module,
         x: torch.Tensor,
         bias: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        x = x.view(-1, x.shape[-1])
-        out_shape = x.shape[:-1] + (layer.output_size_per_partition,)
-        out = torch.empty(
-            (x.shape[0], layer.output_size_per_partition),
-            dtype=torch.float16,
-            device=x.device,
-        )
-        stream = torch.cuda.current_stream()
+        out_shape = x.shape[:-1] + (self.output_size_per_partition,)
 
-        self.linear.forward(x, out, stream.cuda_stream)
-        out = torch.from_dlpack(out)
+        out = self.linear_forward(x)
         if bias is not None:
             out.add_(bias)
 
