@@ -25,8 +25,11 @@ if [ $? != 0 ]; then
 fi
 cd ..
 rm -rf build
-python3 setup.py bdist_wheel --cuda=${cuda_version} -d ./turbomind_build/
-chown ${USERID}:${GROUPID} ./turbomind_build/*
 
+mkdir -p ../../turbomind_build/
+python3 setup.py bdist_wheel --cuda=${cuda_version} -d ../../turbomind_build/
+chown ${USERID}:${GROUPID} ../../turbomind_build/*
+
+cd ../../
 pip uninstall turbomind -y
 pip install ./turbomind_build/*.whl
